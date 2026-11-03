@@ -42,7 +42,7 @@ export function createApp() {
       id,
       method: req.method,
       path: req.originalUrl,
-      headers: redactHeaders(req.headers),
+      headers: config.logHeaders ? redactHeaders(req.headers) : undefined,
       body: config.logBodies ? (body ?? (rawBody ? `<raw ${rawBody.length} bytes>` : undefined)) : undefined,
       delta,
     });

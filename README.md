@@ -102,19 +102,21 @@ Hooks run in registration order. `ctx` carries `id`, `endpoint`, `body`, `header
 and the captured `messages` variable. For responses, `response` is the whole response JSON
 (non-stream) or a per-chunk object (stream).
 
-**Working examples** are pre-registered in `hooks/`. The gateway loads `hooks/index.js`
-automatically at startup (no-op if the file is absent). All 4 hook files are registered
-there — comment out a line to disable a specific hook:
+The gateway loads `hooks/index.js` automatically at startup (no-op if the file is absent).
+It currently registers `hooks/pi-agent-bridge.js`, which removes native tool-calling fields,
+moves the tool definitions into the system message, and instructs the model to request one human-run
+operation using `[(S)USERREQUEST]`/ `[(E)USERREQUEST]` blocks. 
+Edit `hooks/systemprompt.txt` to change that protocol.
+
+Other examples are included but disabled in `hooks/index.js`:
 
 - `hooks/request-mutations.example.js` — exports `requestMutation` (2 logics: prepend system message + strip reasoning_content)
 - `hooks/response-mutations.example.js` — exports `responseMutation` (2 logics: uppercase content + rewrite finish_reason)
 - `hooks/request-mutation.example.js` — exports `requestMutation` (1 logic: append footer to last user message)
 - `hooks/response-mutation.example.js` — exports `responseMutation` (1 logic: strip model field)
-- `hooks/index.js` — imports all 4 and registers them via `addRequestMutation` /
-  `addResponseMutation` (no overlap between the 2-logic and 1-logic variants)
+- `hooks/index.js` — registers the collaboration hook and contains commented registrations for the examples
 
-To add or remove a logic, edit the function body in the matching file — no registration
-code changes needed in `hooks/index.js`.
+To add or remove a logic, edit the function body in the matching file and its registration in `hooks/index.js`.
 
 ## API key passthrough
 

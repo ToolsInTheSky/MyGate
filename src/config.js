@@ -11,6 +11,7 @@ export const config = {
 
   logDir: env.LOG_DIR || 'logs',
   logBodies: env.LOG_BODIES !== 'false',
+  logHeaders: env.LOG_HEADERS !== 'false',
 
   // Capacity of the variable store that keeps messages captured by the interceptor
   messageStoreSize: Number(env.MESSAGE_STORE_SIZE || 200),

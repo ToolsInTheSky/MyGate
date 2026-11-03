@@ -1,6 +1,7 @@
 // Upstream proxy. Logs every outgoing request/response and relays SSE streams
 // byte-by-byte while accumulating their content for logging.
 import { randomUUID } from 'node:crypto';
+import { EnvHttpProxyAgent } from 'undici';
 import { config } from '../config.js';
 import { logEvent, redactHeaders } from '../logger.js';
 import { hasResponseMutations, applyResponseMutations, interceptResponse } from './interceptor.js';
@@ -10,6 +11,27 @@ const HOP_BY_HOP = new Set([
   'host', 'connection', 'keep-alive', 'content-length', 'transfer-encoding',
   'accept-encoding',
 ]);
+const proxyDispatcher = process.env.HTTP_PROXY || process.env.http_proxy || process.env.HTTPS_PROXY || process.env.https_proxy
+  ? new EnvHttpProxyAgent()
+  : undefined;
+
+function describeFetchError(error){
+  const cause = error?.cause;
+  if (!cause) return error;
+  const detail = [cause.code, cause.message].filter(Boolean).join(': ');
+  if (detail) error.message = `${error.message} (${detail})`;
+  return error;
+}
+
+export function upstreamUrl(requestUrl, baseUrl) {
+  const base = new URL(baseUrl);
+  const request = new URL(requestUrl, 'http://localhost');
+  const basePath = base.pathname.replace(/\/$/, '');
+  const requestPath = request.pathname.replace(/^\/v1(?=\/|$)/, '');
+  base.pathname = `${basePath}${requestPath}`;
+  base.search = request.search;
+  return base;
+}
 
 function buildUpstreamHeaders(req) {
   const headers = {};
@@ -40,6 +62,7 @@ function summarizeChat(json) {
 // Accumulate delta content from the SSE text to build a log summary.
 function sseSummary(text) {
   let content = '';
+  let toolCalls;
   let finishReason = null;
   let usage = null;
   let completionId = null;
@@ -55,10 +78,11 @@ function sseSummary(text) {
       if (chunk.usage) usage = chunk.usage;
       const choice = chunk.choices?.[0];
       if (choice?.delta?.content) content += choice.delta.content;
+      if (choice?.delta?.tool_calls) toolCalls = choice.delta.tool_calls;
       if (choice?.finish_reason) finishReason = choice.finish_reason;
     } catch { /* ignore vendor-specific extension events */ }
   }
-  return { completionId, model, content, finishReason, usage };
+  return { completionId, model, content: toolCalls ? null : content, tool_calls: toolCalls, finishReason, usage };
 }
 
 // Transforms one SSE line (data: event) through the response mutations. [DONE]/comments/parse failures stay as-is.
@@ -83,7 +107,7 @@ export async function forward(req, res) {
   const ctx = req.ctx;
   const { id } = ctx;
   const provider = getActive();
-  const url = new URL(req.originalUrl, provider.baseUrl);
+  const url = upstreamUrl(req.originalUrl, provider.baseUrl);
   const headers = buildUpstreamHeaders(req);
 
   const hasBody = !['GET', 'HEAD'].includes(req.method);
@@ -93,7 +117,7 @@ export async function forward(req, res) {
     id,
     method: req.method,
     url: url.toString(),
-    headers: redactHeaders(headers),
+    headers: config.logHeaders ? redactHeaders(headers) : undefined,
     body: config.logBodies ? payload : undefined,
     delta: ctx.delta,
   });
@@ -109,7 +133,10 @@ export async function forward(req, res) {
       body: payload,
       signal: controller.signal,
       duplex: 'half',
+      dispatcher: proxyDispatcher,
     });
+  } catch (error) {
+    throw describeFetchError(error);
   } finally {
     clearTimeout(timer);
   }
@@ -134,6 +161,7 @@ export async function forward(req, res) {
     const collector = new TextDecoder();
     let total = 0;
     let sseText = '';
+    let transformedSseText = '';
     let lineBuf = '';
     const reader = upstreamRes.body.getReader();
     try {
@@ -152,12 +180,16 @@ export async function forward(req, res) {
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop(); // last item is an incomplete line — append it to the next chunk
         for (const line of lines) {
-          res.write((await transformSseLine(ctx, line.replace(/\r$/, ''))) + '\n');
+          const transformed = await transformSseLine(ctx, line.replace(/\r$/, ''));
+          transformedSseText += `${transformed}\n`;
+          res.write(`${transformed}\n`);
         }
       }
       sseText += collector.decode();
       if (mutate && lineBuf) {
-        res.write((await transformSseLine(ctx, lineBuf.replace(/\r$/, ''))) + '\n');
+        const transformed = await transformSseLine(ctx, lineBuf.replace(/\r$/, ''));
+        transformedSseText += `${transformed}\n`;
+        res.write(`${transformed}\n`);
       }
     } catch (err) {
       logEvent('gateway_error', { id, phase: 'stream', message: String(err) });
@@ -165,9 +197,10 @@ export async function forward(req, res) {
       res.end();
     }
 
-    const summary = sseSummary(sseText);
-    if (config.logBodies) upstreamLog.body = { ...summary, object: 'chat.completion.chunk' };
+    const upstreamSummary = sseSummary(sseText);
+    if (config.logBodies) upstreamLog.body = { ...upstreamSummary, object: 'chat.completion.chunk' };
     logEvent('upstream_received', upstreamLog);
+    const summary = sseSummary(mutate ? transformedSseText : sseText);
     const sseBody = { ...summary, object: 'chat.completion.chunk' };
     interceptResponse(ctx, sseBody, mutate);
     logEvent('client_response', {
