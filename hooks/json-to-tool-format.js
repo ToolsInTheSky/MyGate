@@ -19,7 +19,7 @@ function exampleFor(name, schema) {
   if (type === 'number' || type === 'integer') return 0;
   if (type === 'boolean') return false;
   if (type === 'array') return [];
-  if (type === 'object') return [];
+  if (type === 'object') return {};
   return 'value';
 }
 
@@ -30,15 +30,15 @@ function display(value) {
 function convertTool(tool) {
   const definition = tool?.function;
   if (typeof definition?.name !== 'string' || !definition.name) {
-    throw new TypeError(`Each tool must have function.name`);
+    throw new TypeError('Each tool must have function.name');
   }
 
-  const parameters = definition.parameters ?? [];
+  const parameters = definition.parameters ?? {};
   const required = new Set(parameters.required ?? []);
   const lines = [
     `### ${definition.name}`,
     definition.description ?? '',
-    `[(S)USERREQUEST]`,
+    '[(S)USERREQUEST]',
     `tool:${definition.name}`,
   ];
 
@@ -51,7 +51,7 @@ function convertTool(tool) {
     lines.push(`${name}:${display(exampleFor(name, schema))} (${details.join(', ')})`);
   }
 
-  lines.push(`[(E)USERREQUEST]`);
+  lines.push('[(E)USERREQUEST]');
   return lines.join('\n');
 }
 

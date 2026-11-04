@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { JsonToToolFormat } from './json-to-tool-format.js';
-import { toolFormatToToolCalls } from './tool-format-to-tool-call.js';
+import { toolFormatToToolCalls } from './tool-format-to-tool-calls.js';
 
 /**
  * Pi coding-agent bridge.
@@ -66,7 +66,7 @@ export function requestMutation(ctx) {
     ? converter.convert({ tools: toolDefinitions }).trimEnd()
     : '';
 
-  // Prevent the upstream model from receiving native tool-callingfields.
+  // Prevent the upstream model from receiving native tool-calling fields.
   delete ctx.tools;
   if (ctx.body){
     delete ctx.body.tools;
@@ -89,7 +89,7 @@ export function requestMutation(ctx) {
     remainingContent.trimStart(),
     task === null ? '' : `${taskIntroduction}\n\n${task}`,
   ].filter(Boolean).join('\n\n');
-  if (task !== null) ctx.messages.splice(1,1);
+  if (task !== null) ctx.messages.splice(1, 1);
   ctx.requireUserRequestFormat = true;
 }
 
