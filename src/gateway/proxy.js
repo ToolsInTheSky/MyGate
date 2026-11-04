@@ -118,7 +118,7 @@ export async function forward(req, res) {
     method: req.method,
     url: url.toString(),
     headers: config.logHeaders ? redactHeaders(headers) : undefined,
-    body: config.logBodies ? payload : undefined,
+    body: config.logBodies ? (ctx.body ?? payload) : undefined,
     delta: ctx.delta,
   });
 

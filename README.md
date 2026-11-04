@@ -185,11 +185,12 @@ Mutations are split by direction: `addRequestMutation` (client → upstream) and
 `addResponseMutation` (upstream → client), with matching `applyRequestMutations` /
 `applyResponseMutations` and `hasRequestMutations` / `hasResponseMutations`.
 
-Console-only vs JSONL: the console shows body metadata (model, stream, etc.) without `tools`,
-messages shown as delta, and long `content` strings truncated at 1000 chars. The JSONL file
-keeps the complete canonical record.
+The console shows configured headers and body metadata and truncates long `content` strings
+at 1000 chars. `LOG_TOOLS` and `LOG_ACCUMULATED_MESSAGES` apply to both console and JSONL logs.
 
 Sensitive headers such as `Authorization` are masked. Body logging can be disabled with `LOG_BODIES=false`.
+Set `LOG_TOOLS=false` to omit `tools` from logged bodies, and `LOG_ACCUMULATED_MESSAGES=false`
+to log only messages added since the previous turn instead of the accumulated history.
 
 ## Structure
 

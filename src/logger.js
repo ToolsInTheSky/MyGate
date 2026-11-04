@@ -136,20 +136,19 @@ function truncateMessages(messages) {
 function formatDetails(entry) {
   const blocks = [];
 
-  // ── Body metadata (console only — messages replaced with delta, tools omitted, JSONL keeps full record) ──
-  // Skipped for upstream_request (redundant with client_request) and response_intercepted
-  // (its content is shown below as a single field).
-  if (entry.type !== 'upstream_request' && entry.type !== 'response_intercepted') {
+  if (config.logHeaders && entry.headers) {
+    blocks.push(prettyJson({ headers: entry.headers }));
+  }
+
+  // response_intercepted content is shown below as a single field.
+  if (config.logBodies && entry.type !== 'response_intercepted') {
     const body = bodyObject(entry.body);
     if (body) {
-      const { tools, ...rest } = body;
+      const rest = { ...body };
+      if (!config.logTools) delete rest.tools;
 
-      // Replace messages with the delta (new messages only) for console display.
-      // On the first turn (reused=0) the delta IS the full history, so it looks the same.
-      if (entry.delta && Array.isArray(rest.messages)) {
-        const { delta, reused } = entry.delta;
-        // Filter out the system prompt if it has already been seen (reused > 0)
-        rest.messages = (reused > 0 && delta[0]?.role === 'system') ? delta.slice(1) : delta;
+      if (!config.logAccumulatedMessages && entry.delta && Array.isArray(rest.messages)) {
+        rest.messages = entry.delta.delta;
       }
 
       // Truncate long content strings per-message for console display.
@@ -166,7 +165,7 @@ function formatDetails(entry) {
   }
 
   // ── Delta context label — client_request only (other events repeat the same info) ──
-  if (entry.delta && entry.type === 'client_request') {
+  if (config.logBodies && entry.delta && entry.type === 'client_request') {
     const { delta, total, reused } = entry.delta;
     const label = `delta (${delta.length} new / ${total} total, ${reused} already seen)`;
     blocks.push(`  ${paint(C.dim, label)}`);
@@ -177,7 +176,7 @@ function formatDetails(entry) {
     if (entry.changed) {
       const label = entry.type === 'response_intercepted' ? 'response (mutated)' : 'messages (mutated)';
       const value = entry.type === 'response_intercepted' ? entry.content : entry.messages;
-      if (value !== undefined && value !== null) {
+      if (config.logBodies && value !== undefined && value !== null) {
         const text = typeof value === 'string' ? JSON.stringify(value) : prettyJson(value);
         blocks.push(`  ${paint(C.dim, `${label}:`)}\n${text.split('\n').map((line) => `  ${line}`).join('\n')}`);
       }
@@ -282,8 +281,23 @@ function formatConsole(entry) {
 export function logEvent(type, data) {
   const entry = { ts: new Date().toISOString(), type, ...data };
 
-  // The delta is a console-only view helper; the JSONL file keeps the canonical full record.
   const { delta: _delta, ...fileEntry } = entry;
+  if (fileEntry.body !== undefined) {
+    const parsed = bodyObject(fileEntry.body);
+    if (parsed) {
+      let loggedBody = parsed;
+      if (!config.logAccumulatedMessages && entry.delta && Array.isArray(parsed.messages)) {
+        loggedBody = { ...loggedBody, messages: entry.delta.delta };
+      }
+      if (!config.logTools && 'tools' in loggedBody) {
+        const { tools: _tools, ...withoutTools } = loggedBody;
+        loggedBody = withoutTools;
+      }
+      if (loggedBody !== parsed) {
+        fileEntry.body = typeof fileEntry.body === 'string' ? JSON.stringify(loggedBody) : loggedBody;
+      }
+    }
+  }
   const file = currentLogFile();
   try {
     fs.mkdirSync(config.logDir, { recursive: true });

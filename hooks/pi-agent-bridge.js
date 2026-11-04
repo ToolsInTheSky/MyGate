@@ -49,10 +49,19 @@ export function requestMutation(ctx) {
   // Apply this mutation only to chat-completion message arrays.
   if (ctx.endpoint !== 'chat.completions' || !Array.isArray(ctx.messages)) return;
 
-  const lastMessage = ctx.messages.at(-1);
-  if (lastMessage?.role === 'tool') {
-    lastMessage.role = 'user';
-    delete lastMessage.tool_call_id;
+  // The upstream does not support native tool-call history. Convert every prior
+  // assistant tool request and tool result, not only the latest result.
+  for (const message of ctx.messages) {
+    if (message?.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      const requests = message.tool_calls.map((call) =>
+        `Requested tool ${call.function?.name ?? 'unknown'} with arguments: ${call.function?.arguments ?? '{}'}`,
+      ).join('\n');
+      message.content = [textContent(message.content), requests].filter(Boolean).join('\n');
+      delete message.tool_calls;
+    } else if (message?.role === 'tool') {
+      message.role = 'user';
+      delete message.tool_call_id;
+    }
   }
 
   // The first text message contains the original system prompt and tool summary.
